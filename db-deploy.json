@@ -1,0 +1,642 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "HanaVersion": {
+            "type": "string",
+            "metadata": {
+                "description": "Version of HANA"
+            },
+            "defaultValue": "SAP HANA PLATFORM EDITION 1.0 SPS12 REV 23 (100_122_23-10009569)",
+            "allowedValues": [
+                "SAP HANA PLATFORM EDITION 1.0 SPS12 REV 23 (100_122_23-10009569)",
+				"SAP HANA PLATFORM EDITION 2.0 SPS01 REV 10 (51052030)",
+                "SAP HANA PLATFORM EDITION 2.0 SPS02 (51052325)",
+                "SAP HANA PLATFORM EDITION 2.0 SPS03 REV33 (51053381)"
+            ]
+        },   
+        "vmName": {
+            "type": "string",
+            "metadata": {
+                "description": "VM Name"
+            },
+			"defaultValue": "anfrmdb60"
+        },
+        "customUri": {
+            "type": "string",
+            "metadata": {
+                "description": "Uri for SAP Bits"
+            },
+			"defaultValue": "https://sapformationstockage.blob.core.windows.net/sapinstall"
+        },		
+		"virtualNetworkId": {
+            "type": "string",
+            "metadata": {
+                "description": "/subscriptions/.../VNET"
+            },
+			"defaultValue": "/subscriptions/a8130461-8754-4ad5-9bda-4276b3f20d43/resourceGroups/AZINEO000RG000/providers/Microsoft.Network/virtualNetworks/AZINEO001VNET001"
+        },
+        "subnetName": {
+            "type": "string",
+            "metadata": {
+                "description": "Subnet"
+            },
+			"defaultValue": "AZINEO001VNET001-SUB001"
+        },
+		"OperatingSystem": {
+            "type": "string",
+            "metadata": {
+                "description": "Operating system for HANA Machine"
+            },
+            "defaultValue": "SLES for SAP 12 SP3",
+            "allowedValues": [
+                "SLES for SAP 12 SP3",
+                "SLES for SAP 12 SP2",
+                "RHEL 7.2 for SAP HANA"
+            ]
+        },
+        "vmUserName": {
+            "type": "string",
+            "metadata": {
+                "description": "Username for the Virtual Machine"
+            },
+            "defaultValue": "adminineo"
+        },
+        "vmPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Password for the Virtual Machine"
+            },
+            "defaultValue": "JeSuisUnFauxMotDePasse123!"
+		},
+		"domainUserName": {
+            "type": "string",
+            "metadata": {
+                "description": "Domain User Name"
+            },
+            "defaultValue": "gij593-c"
+        },
+        "domainPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Password for the Domain Account"
+            },
+            "defaultValue": "JeSuisUnFauxMotDePasse123!"
+        },
+        "hanaSid": {
+            "type": "string",
+            "metadata": {
+                "description": "SAP HANA System ID"
+            },
+            "defaultValue": "FE6"
+        },
+		"sidadmPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Password for sidadm Account"
+            },
+            "defaultValue": "JeSuisUnFauxMotDePasse123!"
+        },
+		"uidNumber": {
+            "type": "string",
+            "metadata": {
+                "description": "SIDADM Number UID"
+            },
+            "defaultValue": "3301"
+        },
+        "hanaNumber": {
+            "type": "string",
+            "metadata": {
+                "description": "SAP HANA Instance Number"
+            },
+            "defaultValue": "00"
+        },
+        "vmSize": {
+            "type": "string",
+            "metadata": {
+                "description": "Size of VM to deploy"
+            },
+			"defaultValue": "Standard_M128s",
+			"allowedValues": [
+                "Standard_GS5",
+                "Standard_E16s_v3",
+				"Standard_E32s_v3",
+                "Standard_E64s_v3",
+				"Standard_M64ms",
+				"Standard_M128s"
+            ]
+        },
+        "IPAllocationMethod": {
+            "type": "string",
+            "allowedValues": [
+                "Dynamic",
+                "Static"
+            ],
+            "metadata": {
+                "description": "IP Allocation Method"
+            },
+			"defaultValue": "Static"
+        },
+        "StaticIP": {
+            "type": "string",
+            "metadata": {
+                "description": "IP Address for the HANA VM when Static IP Allocation Method has been selected"
+            },
+            "defaultValue": "10.196.198.9"
+        },
+        "AvailSetName": {
+            "type": "string",
+            "metadata": {
+              "description": "This is the name of the availability set to deploy the machine in"
+            },
+            "defaultValue": "availh"
+          },
+		"SubscriptionEmail": {
+            "type": "string",
+            "metadata": {
+                "description": "OS Subscription Email for BYOS, blank for PAYG"
+            },
+            "defaultValue": ""
+        },
+        "SubscriptionID": {
+            "type": "string",
+            "metadata": {
+                "description": "OS Subscription ID for BYOS, blank for PAYG"
+            },
+            "defaultValue": ""
+        }  
+    },
+    "variables": {
+        "api-version": "2017-06-01",
+        "api-version-vm": "2017-12-01",
+        "mode": "Push",
+        "baseUri": "http://10.27.15.43/pub/",
+        "nicName": "[if (equals(parameters('IPAllocationMethod'),'Static'), concat(parameters('vmName'),'-static'), concat(parameters('vmName'),'-dynamic'))]",
+		"vnetId": "[parameters('virtualNetworkId')]",
+        "subnetRef": "[concat(variables('vnetId'), '/subnets/', parameters('subnetName'))]",
+        "OperatingSystemSpec": {
+            "imagePublisher": "[if (contains(parameters('OperatingSystem'),'SLES'),'SUSE','RedHat')]",
+            "imageOffer": "[if (contains(parameters('OperatingSystem'),'SLES'),if (contains(parameters('SubscriptionEmail'),'@'),'SLES-SAP-BYOS','SLES-SAP'),'RHEL-SAP-HANA')]",
+            "sku": "[if (contains(parameters('OperatingSystem'),'12 SP3'),'12-SP3',if (contains(parameters('OperatingSystem'),'12 SP2'),'12-SP2','7.2'))]"
+        },
+        "diskConfig": "[variables(concat('diskConfig_', parameters('vmSize')))]",
+        "diskConfig_Standard_E16s_v3": {
+            "shared": 511,
+            "sap": 63,
+            "backup": 255,
+            "data1": 511,
+            "data2": 511,
+            "data3": 511
+        },
+        "diskConfig_Standard_E32s_v3": {
+            "shared": 511,
+            "sap": 63,
+            "backup": 511,
+            "data1": 511,
+            "data2": 511,
+            "data3": 511
+        },
+        "diskConfig_Standard_E64s_v3": {
+            "shared": 511,
+            "sap": 63,
+            "backup": 1023,
+            "data1": 511,
+            "data2": 511,
+            "data3": 511
+        },
+        "diskConfig_Standard_GS5": {
+            "shared": 511,
+            "sap": 63,
+            "backup": 1023,
+            "data1": 511,
+            "data2": 511,
+            "data3": 511
+        },
+		"diskConfig_Standard_M64ms": {
+            "shared": 1023,
+            "sap": 63,
+            "backup1": 1024,
+            "backup2": 1024,
+            "data1": 1023,
+            "data2": 1023,
+            "data3": 1023,
+            "log1": 511,
+            "log2": 511
+        },
+        "diskConfig_Standard_M128s": {
+            "shared": 2047,
+            "sap": 63,
+            "backup1": 2047,
+            "backup2": 2047,
+            "data1": 1023,
+            "data2": 1023,
+            "data3": 2047,
+            "log1": 255,
+            "log2": 255
+        }
+    },
+    "resources": [
+        {
+            "condition": "[equals(parameters('IPAllocationMethod'), 'Dynamic')]",
+            "apiVersion": "[variables('api-version')]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[concat(parameters('vmName'),'-dynamic')]",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "properties": {
+                "enableAcceleratedNetworking": false,
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[variables('subnetRef')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "condition": "[equals(parameters('IPAllocationMethod'), 'Static')]",
+            "apiVersion": "[variables('api-version')]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[concat(parameters('vmName'),'-static')]",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "properties": {
+                "enableAcceleratedNetworking": false,
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Static",
+                            "privateIPAddress": "[parameters('StaticIP')]",
+                            "subnet": {
+                                "id": "[variables('subnetRef')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-shared')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Standard_LRS",
+                "tier": "Standard"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').shared]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-sap')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Standard_LRS",
+                "tier": "Standard"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').sap]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-backup1')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Standard_LRS",
+                "tier": "Standard"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').backup1]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-backup2')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Standard_LRS",
+                "tier": "Standard"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').backup2]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-data1')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Premium_LRS",
+                "tier": "Premium"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').data1]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-data2')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Premium_LRS",
+                "tier": "Premium"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').data2]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-data3')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Premium_LRS",
+                "tier": "Premium"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').data3]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-log1')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Premium_LRS",
+                "tier": "Premium"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').log1]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/disks",
+            "name": "[concat(parameters('vmName'),'-log2')]",
+            "apiVersion": "2018-04-01",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Premium_LRS",
+                "tier": "Premium"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[variables('diskConfig').log2]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/availabilitySets",
+            "name": "[parameters('AvailSetName')]",
+            "apiVersion": "2017-03-30",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "sku": {
+                "name": "Aligned"
+            },
+            "properties": {
+                "platformFaultDomainCount": 2,
+                "platformUpdateDomainCount": 5
+            }
+        },
+        {
+            "apiVersion": "[variables('api-version-vm')]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[parameters('vmName')]",
+            "location": "[resourceGroup().location]",
+			"tags": {
+				"host": "[parameters('vmName')]",
+				"usage": "sap",
+				"created by": "[parameters('domainUserName')]"
+			},
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-shared'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-sap'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-backup1'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-backup2'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-data1'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-data2'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-data3'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-log1'))]",
+                "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-log2'))]"
+            ],
+            "properties": {          
+                "hardwareProfile": {
+                    "vmSize": "[parameters('vmSize')]"
+                },
+                "osProfile": {
+                    "computerName": "[parameters('vmName')]",
+                    "adminUsername": "[parameters('vmUserName')]",
+                    "adminPassword": "[parameters('vmPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "[variables('OperatingSystemSpec').imagePublisher]",
+                        "offer": "SLES-SAP",
+                        "sku": "[variables('OperatingSystemSpec').sku]",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "createOption": "FromImage"
+                    },
+                    "dataDisks": [
+                        {
+                            "lun": 0,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-shared'))]"
+                            }
+                        },
+                        {
+                            "lun": 1,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-sap'))]"
+                            }
+                        },
+                        {
+                            "lun": 2,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-backup1'))]"
+                            }
+                        },
+                        {
+                            "lun": 3,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-backup2'))]"
+                            }
+                        },
+                        {
+                            "lun": 4,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-data1'))]"
+                            }
+                        },
+                        {
+                            "lun": 5,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-data2'))]"
+                            }
+                        },
+                        {
+                            "lun": 6,
+                            "createOption": "Attach",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-data3'))]"
+                            }
+                        },
+                        {
+                            "lun": 7,
+                            "createOption": "Attach",
+                            "writeAcceleratorEnabled": "true",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-log1'))]"
+                            }
+                        },
+                        {
+                            "lun": 8,
+                            "createOption": "Attach",
+                            "writeAcceleratorEnabled": "true",
+                            "managedDisk": {
+                                "id": "[resourceId('Microsoft.Compute/disks/', concat(parameters('vmName'),'-log2'))]"
+                            }
+                        }
+                    ]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+                        }
+                    ]
+                }
+            },
+            "resources": [
+               {
+                    "name": "scriptextension",
+                    "type": "extensions",
+                    "location": "[resourceGroup().location]",
+                    "apiVersion": "[variables('api-version-vm')]",
+                    "dependsOn": [
+                        "[concat('Microsoft.Compute/virtualMachines/', parameters('vmName'))]"
+                    ],
+                    "properties": {
+                        "publisher": "Microsoft.Azure.Extensions",
+                        "type": "CustomScript",
+                        "typeHandlerVersion": "2.0",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                            "fileUris": [
+                                "[concat(variables('baseUri'),'scripts/db-deploy.sh')]"
+                            ],
+                            "commandToExecute": "[concat('sh db-deploy.sh \"', parameters('customUri'), '\" \"' , parameters('HanaVersion'), '\"  \"' , parameters('vmUserName'), '\" \"', parameters('vmPassword'),'\" \"', parameters('HANASID'), '\" \"', parameters('HANANUMBER'), '\" \"', parameters('vmSize'), '\" \"', parameters('domainUserName'), '\" \"', parameters('domainPassword'), '\" \"', parameters('sidadmPassword'), '\" \"', parameters('uidNumber'), '\"')]"
+                        }
+                    }
+                }
+            ]
+        }
+    ],
+    "outputs": {}
+}
